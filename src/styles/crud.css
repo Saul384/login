@@ -19,6 +19,13 @@
 .crud__form label { font-size: 13px; font-weight: 500; color: var(--text-2); }
 .crud__row { display: flex; gap: 8px; }
 .crud__row .input { flex: 1; min-width: 0; }
+.crud__row--wrap { flex-wrap: wrap; }
+.crud__row--wrap .input { flex: 1 1 180px; }
+.crud__row .crud__select { flex: 0 1 220px; }
+.crud__select { cursor: pointer; }
+.crud__rel { font-size: 14px; color: var(--text-2); }
+.crud__rel .crud__select { width: 100%; max-width: 260px; }
+.crud__rel-none { color: var(--text-3); }
 
 .crud__filter {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;

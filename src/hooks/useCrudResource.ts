@@ -30,14 +30,14 @@ export function useCrudResource<T extends { id: number }>(api: CrudApi<T>) {
     load();
   }, [load]);
 
-  const create = async (value: string) => {
-    const created = await api.crear(value);
+  const create = async (value: string, relId?: number | null) => {
+    const created = await api.crear(value, relId);
     setItems((list) => [...list, created]);
     return created;
   };
 
-  const update = async (id: number, value: string) => {
-    const updated = await api.actualizar(id, value);
+  const update = async (id: number, value: string, relId?: number | null) => {
+    const updated = await api.actualizar(id, value, relId);
     setItems((list) => list.map((it) => (it.id === id ? updated : it)));
     return updated;
   };

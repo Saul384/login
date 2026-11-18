@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import Icon from '../Icon';
 import { useCrudResource } from '../../hooks/useCrudResource';
 import { errorText } from '../../api/httpClient';
-import type { CrudApi } from '../../types';
+import type { CrudApi, RelationConfig, RelationOption } from '../../types';
 
 import '../../styles/crud.css';
 
@@ -46,12 +46,66 @@ interface CrudScreenProps<F extends string> {
   /** nombre del servicio para los mensajes */
   serviceName: string;
   placeholder: string;
+  /** Relación opcional con otro recurso (p. ej. B → Entidad A): agrega columna y selector. */
+  relation?: RelationConfig;
 }
 
+/** "" en el <select> = sin relación. */
+const toRelId = (value: string): number | null => (value === '' ? null : Number(value));
+
 /** Pantalla CRUD genérica para un recurso { id, <field> } (MS-A, MS-B). */
-export default function CrudScreen<F extends string>({ api, field, prefix, title, serviceName, placeholder }: CrudScreenProps<F>) {
+export default function CrudScreen<F extends string>({ api, field, prefix, title, serviceName, placeholder, relation }: CrudScreenProps<F>) {
   const crud = useCrudResource(api);
   const { items, status, error, filter } = crud;
+
+  // ---------- Relación (opcional) ----------
+  const [relOptions, setRelOptions] = useState<RelationOption[]>([]);
+  const [relError, setRelError] = useState<string | null>(null);
+  const [newRel, setNewRel] = useState('');
+  const [editRel, setEditRel] = useState('');
+
+  const loadRelOptions = async () => {
+    if (!relation) return;
+    setRelError(null);
+    try {
+      setRelOptions(await relation.load());
+    } catch (ex) {
+      setRelOptions([]);
+      setRelError(`No se pudo cargar ${relation.label}: ${errorText(ex)}`);
+    }
+  };
+
+  useEffect(() => {
+    loadRelOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [relation]);
+
+  const relIdOf = (item: Row<F>): number | null => {
+    if (!relation) return null;
+    const v = (item as Record<string, unknown>)[relation.field];
+    return typeof v === 'number' ? v : null;
+  };
+
+  const relText = (relId: number | null) => {
+    if (relId === null) return null;
+    const opt = relOptions.find((o) => o.id === relId);
+    return opt ? opt.label : `#${relId}`;
+  };
+
+  const relSelect = (id: string, value: string, onChange: (v: string) => void, ariaLabel?: string) => (
+    <select
+      id={id}
+      className="input crud__select"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={ariaLabel}
+    >
+      <option value="">Sin {relation?.label}</option>
+      {relOptions.map((o) => (
+        <option key={o.id} value={o.id}>{o.label}</option>
+      ))}
+    </select>
+  );
 
   const createRef = useRef<HTMLInputElement>(null);
   const [newName, setNewName] = useState('');
@@ -88,8 +142,9 @@ export default function CrudScreen<F extends string>({ api, field, prefix, title
     }
     setCreating(true);
     try {
-      const created = await crud.create(newName.trim());
+      const created = await crud.create(newName.trim(), relation ? toRelId(newRel) : undefined);
       setNewName('');
+      setNewRel('');
       notify('ok', `Registro #${created.id} agregado.`);
     } catch (ex) {
       notify('error', errorText(ex));
@@ -112,6 +167,7 @@ export default function CrudScreen<F extends string>({ api, field, prefix, title
     setIdQuery('');
     setMissingIds([]);
     crud.load();
+    loadRelOptions();
   };
 
   // ---------- Editar ----------
@@ -119,6 +175,8 @@ export default function CrudScreen<F extends string>({ api, field, prefix, title
     setConfirmId(null);
     setEditingId(item.id);
     setEditValue(item[field] ?? '');
+    const relId = relIdOf(item);
+    setEditRel(relId === null ? '' : String(relId));
     setEditError(null);
   };
 
@@ -134,7 +192,7 @@ export default function CrudScreen<F extends string>({ api, field, prefix, title
     if (err) return;
     setBusyId(id);
     try {
-      await crud.update(id, editValue.trim());
+      await crud.update(id, editValue.trim(), relation ? toRelId(editRel) : undefined);
       setEditingId(null);
       notify('ok', `Registro #${id} guardado.`);
     } catch (ex) {
@@ -189,7 +247,7 @@ export default function CrudScreen<F extends string>({ api, field, prefix, title
         <div className="crud__toolbar">
           <form className="crud__form" onSubmit={onCreate} noValidate>
             <label htmlFor={`${prefix}-new`}>Nuevo registro</label>
-            <div className="crud__row">
+            <div className={relation ? 'crud__row crud__row--wrap' : 'crud__row'}>
               <input
                 id={`${prefix}-new`}
                 ref={createRef}
@@ -205,12 +263,14 @@ export default function CrudScreen<F extends string>({ api, field, prefix, title
                 aria-describedby={createError ? `${prefix}-new-error` : undefined}
                 autoComplete="off"
               />
+              {relation && relSelect(`${prefix}-new-rel`, newRel, setNewRel, relation.label)}
               <button type="submit" className="btn btn--primary btn--sm" disabled={creating}>
                 {creating ? <span className="spinner" aria-hidden="true" /> : <Icon name="plus" size={16} />}
                 Agregar
               </button>
             </div>
             {createError && <span id={`${prefix}-new-error`} className="field-error">{createError}</span>}
+            {relError && <span className="field-error">{relError}</span>}
           </form>
 
           <form className="crud__form" onSubmit={onSearch} noValidate role="search">
@@ -286,6 +346,7 @@ export default function CrudScreen<F extends string>({ api, field, prefix, title
               <tr>
                 <th scope="col">ID</th>
                 <th scope="col">Nombre</th>
+                {relation && <th scope="col">{relation.label}</th>}
                 <th scope="col" className="crud__actions"><span className="sr-only">Acciones</span></th>
               </tr>
             </thead>
@@ -295,6 +356,7 @@ export default function CrudScreen<F extends string>({ api, field, prefix, title
                     <tr key={i} aria-hidden="true">
                       <td className="crud__id"><div className="skel" style={{ width: 28 }} /></td>
                       <td><div className="skel" style={{ width: `${40 + i * 12}%` }} /></td>
+                      {relation && <td><div className="skel" style={{ width: 96 }} /></td>}
                       <td className="crud__actions"><div className="skel" style={{ width: 64 }} /></td>
                     </tr>
                   ))
@@ -335,6 +397,16 @@ export default function CrudScreen<F extends string>({ api, field, prefix, title
                             item[field]
                           )}
                         </td>
+
+                        {relation && (
+                          <td className="crud__rel">
+                            {editing ? (
+                              relSelect(`${prefix}-edit-rel-${item.id}`, editRel, setEditRel, `${relation.label} del registro ${item.id}`)
+                            ) : relText(relIdOf(item)) ?? (
+                              <span className="crud__rel-none">Sin {relation.label}</span>
+                            )}
+                          </td>
+                        )}
 
                         <td className="crud__actions">
                           <div className="crud__actions-inner">
